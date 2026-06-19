@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BCU AI Hackathon 2026 - Progress</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #5f6c7b;
+      --line: #d8dee6;
+      --panel: #f7f9fb;
+      --accent: #0f766e;
+      --warn: #b45309;
+      --bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.5;
+    }
+    header {
+      padding: 28px 36px;
+      border-bottom: 1px solid var(--line);
+      background: #eef7f5;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 24px 44px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+    section {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+    }
+    .wide { grid-column: 1 / -1; }
+    ul { margin: 0; padding-left: 20px; }
+    li + li { margin-top: 8px; }
+    code {
+      background: #e7edf3;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 0.95em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #e7edf3;
+      font-weight: 700;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+    .warn { background: var(--warn); }
+    .muted { color: var(--muted); }
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
+      header { padding: 24px 20px; }
+      main { padding: 20px 14px 34px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>BCU AI Hackathon 2026 Progress</h1>
+    <p class="muted">Current working repo: <code>C:\Users\Lenovo\Downloads\Coursework_resources-20260417\BCU-AI-Hackathon-2026</code></p>
+  </header>
+  <main class="grid">
+    <section>
+      <h2>What The Challenge Wants</h2>
+      <ul>
+        <li>Answer 100 multiple-choice questions from <code>questions_100.csv</code>.</li>
+        <li>Submit exactly <code>question_no,answer</code> in <code>TEAMNAME_submission.csv</code>.</li>
+        <li>Answers should be A, B, C, D, or E.</li>
+        <li>Include code, README, and a short PPTX/PDF in your own GitHub repository.</li>
+        <li>Any LLM used must be 8B parameters or smaller.</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Pipeline I Am Building</h2>
+      <ul>
+        <li><span class="badge">1</span>Clean the question text and repair encoding artifacts.</li>
+        <li><span class="badge">2</span>Build targeted search queries from the question and entity names.</li>
+        <li><span class="badge">3</span>Retrieve evidence from DuckDuckGo and Wikipedia.</li>
+        <li><span class="badge">4</span>Search each answer option separately to avoid weak guessing.</li>
+        <li><span class="badge">5</span>Score options using exact phrases, keyword overlap, numbers, and co-occurrence.</li>
+        <li><span class="badge">6</span>Export answers plus an evidence log for auditability.</li>
+      </ul>
+    </section>
+    <section class="wide">
+      <h2>Files Being Created</h2>
+      <table>
+        <thead>
+          <tr><th>File</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>src/generate_submission.py</code></td><td>Main retrieval and scoring pipeline.</td></tr>
+          <tr><td><code>TEAMNAME_submission.csv</code></td><td>Final answer file required by organisers. I will rename TEAMNAME once you give me the team name.</td></tr>
+          <tr><td><code>outputs/evidence_log.csv</code></td><td>Shows the searches, chosen answer, confidence, scores, and top evidence for every question.</td></tr>
+          <tr><td><code>outputs/run_summary.json</code></td><td>Machine-readable run summary: row count, answer distribution, low-confidence questions.</td></tr>
+          <tr><td><code>README.md</code></td><td>Short explanation and run instructions for judges.</td></tr>
+          <tr><td><code>slides/team_presentation.pptx</code></td><td>Short presentation of method, architecture, and submission results.</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Current Test Result</h2>
+      <p>I first ran a 5-question test. The starter-style scoring had weak spots on short factual answers, so I patched the script to do option-specific searches, decimal-aware numeric scoring, and exact Wikipedia page-title boosting.</p>
+      <p>Latest 5-question output: <code>1=B, 2=D, 3=B, 4=D, 5=D</code>.</p>
+      <p><span class="badge warn">Next</span>Run all 100, inspect low-confidence rows, then package README and slides.</p>
+    </section>
+    <section>
+      <h2>Why This Method</h2>
+      <p>These questions are mostly Wikipedia/general-knowledge facts. A pure LLM may hallucinate. Evidence-first retrieval is more practical, easier to explain, and safer under the 8B model rule.</p>
+    </section>
+  </main>
+</body>
+</html>
