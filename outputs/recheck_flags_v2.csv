@@ -1,0 +1,13 @@
+question_no,rechecked_answer,status,why_flagged,team_action
+9,C,corrected_wrong_script_answer,"Script chose A, but the mission objective was short-period extrasolar planets, so C fits better.","Use C unless your team finds direct evidence otherwise."
+  10,E,corrected_wrong_script_answer,"Sources point to the original Broadway Girls being first performed outside the listed years, so none of the listed year options is safest.","Use E."
+  28,A,bad_wording,"US forces outnumbered the Chiricahua Apache heavily, but option A says ratio 1:100 in a mathematically awkward way.","Use A as intended answer, but note wording is bad."
+  32,B,bad_options,"Meitetsu 1380 operated from 2003 to September 2015, around 12 years. No 12-year option is given; 13 is the closest/intended option.","Use B, but mark as flawed option."
+  39,A,low_confidence_inference,"Source fact is that Happiness was recorded in Matthew Ryan's home. The options ask for significance, which is interpretive.","Use A as closest, but teammate should check."
+  43,E,ambiguous_options,"George Bemis is connected to unique legal cases, international law, and reform. E is closest to the international-law wording, but more than one option partly fits.","Use E, but teammate should check."
+  52,A,bad_options,"Nekagenet Crippa won a national title in 2019, but sources describe it as Italian, while option A says Ethiopian. No exact option is clean.","Use A as closest/intended, but mark flawed."
+  55,A,bad_options,"Whangamomona is around 55 km southwest of Ohura. No option says 55 km; A is closest in unit/direction but has 61 km.","Use A only as closest option; mark flawed."
+  65,A,bad_options,"Tim Kinsella is primarily known as a musician, but music is not an option. Filmmaking is the closest listed related field.","Use A only because no music option exists."
+  79,A,bad_question,"All five listed villages appear to be part of Rachitova commune, so there is no true NOT-part option.","Use A only as placeholder; this needs team/manual decision."
+  88,E,corrected_uncertain,"Earlier draft leaned municipality, but sources point to government/public ownership rather than municipality.","Use E unless stronger local source says otherwise."
+  95,B,low_confidence,"Death by Thy Serpent is a difficult discography question. B is the closest to available wording about the lineup/release, but this needs manual source checking.","Use B, but teammate should verify."
