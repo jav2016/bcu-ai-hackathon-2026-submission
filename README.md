@@ -1,27 +1,38 @@
-# BCU AI Hackathon 2026 Submission
+# BCU AI Hackathon 2026 | Evidence-Grounded Question Answering
 
-This is my work for the BCU AI Hackathon 2026 task.
+This repository contains my BCU AI Hackathon 2026 submission. The challenge was to answer 100 multiple-choice questions in four hours and submit a reproducible CSV.
 
-The task was to answer 100 multiple choice questions and submit the answers in a CSV file.
+## What I built
 
-## Files
+A Python pipeline that:
 
-- `questions_100.csv` - given questions
-- `Anthropic_submission.csv` - my final answers
-- `src/generate_submission.py` - code used to search and score answers
-- `outputs/recheck_flags_v2.csv` - questions I checked again because they were risky
+- cleans the supplied questions;
+- searches DuckDuckGo and Wikipedia for evidence;
+- scores each answer option;
+- records confidence and source links; and
+- flags uncertain cases for manual review.
 
-## How I did it
+The final run used evidence retrieval and deterministic scoring, not an LLM. I did not use the organiser answer key.
 
-I used Python to search for evidence from web/Wikipedia and compare it with the answer options. After that I manually checked the risky answers because some first answers were not reliable.
+## Workflow
 
-I did not use the organiser answer key.
+Question -> evidence search -> option scoring -> confidence check -> manual review -> final CSV
 
-Important recheck fixes:
+## Result
 
-- Q9 = C
-- Q10 = E
-- Q88 = E
-- Q95 = B
+- 100 questions processed
+- 100 valid answers
+- 4 manual corrections
+- 12 cases retained in the recheck log
 
-The final CSV has 100 rows and only A, B, C, D or E answers.
+Official accuracy is not claimed because no answer key was used. Unclear questions were checked manually instead of being accepted without evidence.
+
+## Run
+
+```powershell
+pip install -r requirements.txt
+python src/generate_submission.py
+```
+
+Main files: `src/generate_submission.py`, `Anthropic_submission.csv` and `outputs/recheck_flags_v2.csv`.
+
