@@ -7,10 +7,9 @@ This script improves the starter pipeline with:
   - Wikipedia API retrieval as a reliable fallback
   - deterministic option scoring against retrieved evidence
   - evidence logs for auditability
+  - automatic application of the team's reviewed answers
 
-The optional LLM arbitration hook is deliberately isolated. In this local run,
-the pipeline uses retrieval/ranking only because no <=8B local LLM runtime is
-installed on the machine. The README documents a compliant <=8B LLM option.
+The pipeline uses retrieval and deterministic ranking. It does not use an LLM.
 """
 
 from __future__ import annotations
@@ -163,6 +162,29 @@ def load_questions(path: Path) -> list[dict[str, str]]:
     if missing:
         raise ValueError(f"Question file missing columns: {sorted(missing)}")
     return rows
+
+
+def load_reviewed_answers(path: Path) -> dict[int, str]:
+    """Load the team's checked answers from the recheck log."""
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    required = {"question_no", "rechecked_answer"}
+    missing = required - set(rows[0].keys() if rows else [])
+    if missing:
+        raise ValueError(f"Reviewed-answer file missing columns: {sorted(missing)}")
+
+    reviewed: dict[int, str] = {}
+    for row in rows:
+        question_no = int(row["question_no"].strip())
+        answer = row["rechecked_answer"].strip().upper()
+        if answer not in ALLOWED_ANSWERS:
+            raise ValueError(
+                f"Invalid reviewed answer for question {question_no}: {answer!r}"
+            )
+        if question_no in reviewed:
+            raise ValueError(f"Duplicate reviewed answer for question {question_no}")
+        reviewed[question_no] = answer
+    return reviewed
 
 
 def compact_query(value: str, max_terms: int = 14) -> str:
@@ -558,6 +580,80 @@ def phrase_score(option: str, evidence_text: str) -> float:
     return score
 
 
+def source_quality_score(item: Evidence) -> float:
+    """Prefer stronger sources in the evidence log."""
+    host = urllib.parse.urlparse(item.url).netloc.lower().removeprefix("www.")
+    if "wikipedia.org" in host:
+        return 12.0
+    if host.endswith((".gov", ".gov.uk", ".edu", ".ac.uk", ".mil")):
+        return 10.0
+    if host.endswith("fandom.com"):
+        return -6.0
+    if host in {
+        "youtube.com",
+        "youtu.be",
+        "facebook.com",
+        "instagram.com",
+        "tiktok.com",
+        "x.com",
+        "twitter.com",
+    }:
+        return -10.0
+    return 0.0
+
+
+def evidence_rank_score(row: dict[str, str], option: str, item: Evidence) -> float:
+    """Rank evidence by answer support, question relevance and source quality."""
+    item_text = item.text()
+    item_terms = set(content_terms(item_text))
+    entity_terms = set(content_terms(" ".join(entity_candidates(row["question"])[:2])))
+    question_terms = set(content_terms(row["question"]))
+    entity_overlap = len(entity_terms & item_terms)
+    question_overlap = len(question_terms & item_terms)
+    return (
+        phrase_score(option, item_text)
+        + 1.5 * entity_overlap
+        + 0.35 * question_overlap
+        + source_quality_score(item)
+    )
+
+
+def select_top_evidence(
+    row: dict[str, str], option: str, items: list[Evidence], limit: int = 3
+) -> list[Evidence]:
+    """Select relevant evidence while avoiding repeated results from one site."""
+    ranked = sorted(
+        items,
+        key=lambda item: evidence_rank_score(row, option, item),
+        reverse=True,
+    )
+    selected: list[Evidence] = []
+    seen_hosts: set[str] = set()
+    seen_urls: set[str] = set()
+
+    for item in ranked:
+        host = urllib.parse.urlparse(item.url).netloc.lower().removeprefix("www.")
+        if item.url and item.url in seen_urls:
+            continue
+        if host and host in seen_hosts:
+            continue
+        selected.append(item)
+        if item.url:
+            seen_urls.add(item.url)
+        if host:
+            seen_hosts.add(host)
+        if len(selected) == limit:
+            return selected
+
+    for item in ranked:
+        if item in selected or (item.url and item.url in seen_urls):
+            continue
+        selected.append(item)
+        if len(selected) == limit:
+            break
+    return selected
+
+
 def cooccurrence_score(row: dict[str, str], option: str, evidence_text: str) -> float:
     entity_terms = content_terms(" ".join(entity_candidates(row["question"])[:2]))
     if not entity_terms:
@@ -606,6 +702,7 @@ def score_options(
 
 
 def choose_answer(scores: dict[str, float]) -> tuple[str, float]:
+    """Return the best option and an uncalibrated ranking-margin score."""
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     if not ranked:
         return "A", 0.0
@@ -621,12 +718,16 @@ def run(
     output_file: Path,
     evidence_file: Path,
     summary_file: Path,
+    reviewed_answers_file: Path | None = None,
     use_web: bool = True,
     limit: int | None = None,
     start: int | None = None,
     end: int | None = None,
 ) -> None:
     rows = load_questions(questions_file)
+    reviewed_answers = (
+        load_reviewed_answers(reviewed_answers_file) if reviewed_answers_file else {}
+    )
     if start is not None or end is not None:
         start_no = start if start is not None else 1
         end_no = end if end is not None else 10**9
@@ -641,7 +742,9 @@ def run(
     submission_rows: list[dict[str, str]] = []
     evidence_rows: list[dict[str, Any]] = []
     answer_counts = {label: 0 for label in OPTION_LABELS}
-    low_confidence: list[int] = []
+    low_ranking_margin: list[int] = []
+    reviewed_rows_applied = 0
+    answers_changed_after_review = 0
 
     for index, row in enumerate(rows, start=1):
         question_no = int(row["question_no"])
@@ -649,25 +752,29 @@ def run(
         queries, evidence = retrieve_evidence(row, use_web=use_web)
         option_evidence = retrieve_option_evidence(row, use_web=use_web)
         scores = score_options(row, evidence, option_evidence=option_evidence)
-        answer, confidence = choose_answer(scores)
+        generated_answer, ranking_margin = choose_answer(scores)
+        reviewed_answer = reviewed_answers.get(question_no)
+        answer = reviewed_answer or generated_answer
+        if reviewed_answer:
+            reviewed_rows_applied += 1
+            if reviewed_answer != generated_answer:
+                answers_changed_after_review += 1
         answer_counts[answer] += 1
-        if confidence < 0.58:
-            low_confidence.append(question_no)
+        if ranking_margin < 0.58:
+            low_ranking_margin.append(question_no)
 
         submission_rows.append({"question_no": str(question_no), "answer": answer})
         answer_evidence = evidence + option_evidence.get(answer, [])
-        top_evidence = sorted(
-            answer_evidence,
-            key=lambda item: phrase_score(row[answer], item.text()),
-            reverse=True,
-        )[:3]
+        top_evidence = select_top_evidence(row, row[answer], answer_evidence)
         evidence_rows.append(
             {
                 "question_no": question_no,
                 "question": fix_mojibake(row["question"]),
                 "queries": " | ".join(queries),
-                "answer": answer,
-                "confidence": confidence,
+                "generated_answer": generated_answer,
+                "final_answer": answer,
+                "reviewed_answer_applied": reviewed_answer is not None,
+                "ranking_margin": ranking_margin,
                 "scores": json.dumps(scores, sort_keys=True),
                 "top_evidence_titles": " | ".join(item.title for item in top_evidence),
                 "top_evidence_urls": " | ".join(item.url for item in top_evidence),
@@ -685,8 +792,10 @@ def run(
             "question_no",
             "question",
             "queries",
-            "answer",
-            "confidence",
+            "generated_answer",
+            "final_answer",
+            "reviewed_answer_applied",
+            "ranking_margin",
             "scores",
             "top_evidence_titles",
             "top_evidence_urls",
@@ -703,11 +812,17 @@ def run(
         "row_count": len(submission_rows),
         "allowed_answers": sorted(ALLOWED_ANSWERS),
         "answer_counts": answer_counts,
-        "low_confidence_questions": low_confidence,
+        "low_ranking_margin_questions": low_ranking_margin,
+        "reviewed_answers_file": (
+            str(reviewed_answers_file) if reviewed_answers_file else None
+        ),
+        "reviewed_rows_applied": reviewed_rows_applied,
+        "answers_changed_after_review": answers_changed_after_review,
         "ddgs_available": DDGS_AVAILABLE,
         "web_search_enabled": use_web,
         "method": "DuckDuckGo/Wikipedia retrieval + deterministic option ranking",
-        "llm_model": "No local LLM executed in this run; README documents optional Mistral-7B-Instruct arbitration hook.",
+        "confidence_note": "Ranking margin used for review; not an accuracy probability.",
+        "llm_model": "Not used.",
     }
     summary_file.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"Saved submission: {output_file}")
@@ -719,9 +834,20 @@ def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Generate BCU AI Hackathon submission")
     parser.add_argument("--questions", type=Path, default=root / "questions_100.csv")
-    parser.add_argument("--output", type=Path, default=root / "TEAMNAME_submission.csv")
+    parser.add_argument("--output", type=Path, default=root / "generated_submission.csv")
     parser.add_argument("--evidence", type=Path, default=root / "outputs" / "evidence_log.csv")
     parser.add_argument("--summary", type=Path, default=root / "outputs" / "run_summary.json")
+    parser.add_argument(
+        "--reviewed-answers",
+        type=Path,
+        default=root / "outputs" / "recheck_flags_v2.csv",
+        help="CSV containing checked answers to apply after automatic scoring",
+    )
+    parser.add_argument(
+        "--skip-reviewed-answers",
+        action="store_true",
+        help="Keep automatic answers without applying the team's checked answers",
+    )
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--start", type=int, default=None, help="First question_no to process")
     parser.add_argument("--end", type=int, default=None, help="Last question_no to process")
@@ -736,6 +862,9 @@ if __name__ == "__main__":
         output_file=args.output,
         evidence_file=args.evidence,
         summary_file=args.summary,
+        reviewed_answers_file=(
+            None if args.skip_reviewed_answers else args.reviewed_answers
+        ),
         use_web=not args.no_web,
         limit=args.limit,
         start=args.start,
